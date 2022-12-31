@@ -1,5 +1,6 @@
 import numpy as np
 from numpy.random import default_rng
+import scipy.stats as stats
 
 import utils
 from crp import CRP
@@ -129,6 +130,33 @@ class State(CRP):
     def transition_params(self):
         for view in self.views:
             view.transition_params()
+
+    def calc_log_lik_model(self):
+        """return the log likelihood of the model"""
+        log_lik = np.longfloat(0)
+        
+        # prior prob of observing each view
+        log_lik += self.calc_logpdf_marginal(self.alpha)
+        log_lik -= self.alpha 
+
+        # likelihood of observing the hyperpriors
+        for dim in self.dims:
+            lik_s = stats.expon.logpdf(x=dim.hypers["s"], loc=1/5)
+            lik_b = stats.beta.logpdf(x=dim.hypers["b"], a=1, b=1)
+            log_lik += lik_s + lik_b
+
+        # prior prob of observing each cluster
+        for view in self.views:
+            log_lik += view.calc_logpdf_marginal(view.alpha)
+            log_lik -= view.alpha
+        
+        # joint likelihood of observing dims in the views, clusters they are in
+        for view in self.views:
+            for dim in view.dims:         
+                log_lik += dim.calc_bernpdf_marginal_dim(view.elements)
+        
+        return log_lik
+
 
     def _verify_views(self):
         for view, dims in zip(self.views, self.elements):
