@@ -1,25 +1,34 @@
 import numpy as np
 from numpy.random import default_rng
 from scipy.special import gammaln
-
-
+from RunDEMC import Model, Param, dists
+import utils
 class CRP:
     """Basic constructor for classes that need to do Chinese Restaurant Process clustering.
     Assumes that all objects to be clustered are unique and hashable."""
+    alpha_dist = dists.gamma(1, 1)
 
-    def __init__(self, alpha):
+    def __init__(self, alpha=None, rng=None):
         """
         Args:
-            alpha (int): concentration parameter for the CRP
+            alpha (float, optional): concentration parameter for the CRP
+            rng (Generator, optional): numpy rng object. Defaults to None.
 
         Params:
             N (int): number of objects currently seated
             K (int): number of clusters currently
             elements (list(set)): a list of sets, each containing the elements in a cluster
         """
-        self.rng = default_rng()
+        self.rng = rng
+
+        if self.rng is None:
+            self.rng = default_rng()
 
         self.alpha = alpha
+
+        if self.alpha is None:
+            self.alpha = self.alpha_dist.rvs(size=1, random_state=self.rng)[0]
+
         self.N = 0
         self.K = 0
         self.elements = []
@@ -33,18 +42,21 @@ class CRP:
         return None
 
     def add_obj(self, obj, cluster_i):
-        """add an object to a specific cluster"""
+        """add an object to a specific cluster. return True if added to a different cluster"""
+        # TODO: could be slightly more efficient if I also account for going from singleton to new singleton (do nothing)
+        # probably not worth it
+
         if cluster_i == self.K:
             self.elements.append({obj})
             self.K += 1
 
         elif obj in self.elements[cluster_i]:
-            return 0
+            return False
         else:
             self.elements[cluster_i].add(obj)
 
         self.N += 1
-        return 1
+        return True
 
     def remove_obj(self, obj, cluster_i):
         """remove an object from a specific cluster"""
@@ -92,7 +104,7 @@ class CRP:
         return assignment_probs
 
     def calc_logpdf_marginal(self, alpha):
-        """log P(alpha|N,K)"""
+        """log P(alpha and N and K)"""
 
         return (
             self.K * np.log(alpha)
@@ -110,10 +122,33 @@ class CRP:
         if len(self.elements[cluster_i]) == 1:
             probs[cluster_i] = self.alpha
         else:
-        # CRP prob is as if it weren't there
-            probs[cluster_i] = (len(self.elements[cluster_i]) - 1)
+            # CRP prob is as if it weren't there
+            probs[cluster_i] = len(self.elements[cluster_i]) - 1
 
         return np.log(np.array(probs))
 
-    def __str__(self):
-        return f"{self.elements}\nalpha: {self.alpha}"
+    def transition_alpha(self):
+        def log_lik(pop, *args):
+            return self.calc_logpdf_marginal(pop["alpha"])
+
+        hypers = [
+            Param(name="alpha", prior=self.alpha_dist)
+        ]
+
+        mod = Model(
+            name="fun",
+            params=hypers,
+            like_fun=log_lik,
+            like_args=None,
+            initial_zeros_ok=False,
+            use_priors=True,
+            verbose=False,
+        )
+
+        burnin = 200
+        mod(400, burnin=False)
+        #utils.plot_loglik(mod)
+        self.alpha = utils.posterior_sample(mod, burnin)[0]
+
+    def __repr__(self):
+        return f"""alpha: {self.alpha}, clusters: {self.K}, obs: {self.N}"""

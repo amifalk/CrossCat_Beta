@@ -17,7 +17,7 @@ def posterior_sample(model, burnin=0):
         for i in range(model.particles.shape[-1])
     ]
 
-    return dict(zip(model.param_names, selections))
+    return selections
 
 
 def MAP_estimates(model, burnin=0):
